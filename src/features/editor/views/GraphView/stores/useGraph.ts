@@ -43,6 +43,7 @@ interface GraphActions {
   centerView: () => void;
   clearGraph: () => void;
   setZoomFactor: (zoomFactor: number) => void;
+  updateNode: (id: string, payload: { key: string; value: string }) => void;
 }
 
 const useGraph = create<Graph & GraphActions>((set, get) => ({
@@ -101,6 +102,44 @@ const useGraph = create<Graph & GraphActions>((set, get) => ({
   },
   toggleFullscreen: fullscreen => set({ fullscreen }),
   setViewPort: viewPort => set({ viewPort }),
+  updateNode: (id, payload) => {
+    const { nodes } = get();
+    const nodeToUpdate = nodes.find(node => node.id === id);
+    
+    if (!nodeToUpdate || !nodeToUpdate.path) return;
+
+    // Update the JSON at the node's path
+    try {
+      const jsonData = JSON.parse(useJson.getState().json);
+      let current: any = jsonData;
+      
+      // Navigate to the parent of the value we want to update
+      for (let i = 0; i < nodeToUpdate.path.length - 1; i++) {
+        current = current[nodeToUpdate.path[i]];
+      }
+      
+      const lastKey = nodeToUpdate.path[nodeToUpdate.path.length - 1];
+      
+      // If it's an object property, update both key and value
+      if (typeof lastKey === 'string' && current && typeof current === 'object') {
+        // Handle key change
+        if (payload.key !== lastKey) {
+          delete current[lastKey];
+          current[payload.key] = payload.value;
+        } else {
+          current[lastKey] = payload.value;
+        }
+      } else if (typeof lastKey === 'number' && Array.isArray(current)) {
+        // If it's an array element, just update the value
+        current[lastKey] = payload.value;
+      }
+      
+      // Update the JSON in the store
+      useJson.getState().setJson(JSON.stringify(jsonData, null, 2));
+    } catch (error) {
+      console.error('Error updating node:', error);
+    }
+  },
 }));
 
 export default useGraph;

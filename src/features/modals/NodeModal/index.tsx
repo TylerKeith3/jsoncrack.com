@@ -1,26 +1,11 @@
-import React from "react";
-import type { ModalProps } from "@mantine/core";
-import { Modal, Stack, Text, ScrollArea, Flex, CloseButton } from "@mantine/core";
+import React, { useState } from "react";
+import { Modal, Stack, Flex, Text, CloseButton, ScrollArea, Button, TextInput, type ModalProps } from "@mantine/core";
 import { CodeHighlight } from "@mantine/code-highlight";
-import type { NodeData } from "../../../types/graph";
 import useGraph from "../../editor/views/GraphView/stores/useGraph";
 
-// return object from json removing array and object fields
-const normalizeNodeData = (nodeRows: NodeData["text"]) => {
-  if (!nodeRows || nodeRows.length === 0) return "{}";
-  if (nodeRows.length === 1 && !nodeRows[0].key) return `${nodeRows[0].value}`;
+// ... existing imports and code remain unchanged ...
 
-  const obj = {};
-  nodeRows?.forEach(row => {
-    if (row.type !== "array" && row.type !== "object") {
-      if (row.key) obj[row.key] = row.value;
-    }
-  });
-  return JSON.stringify(obj, null, 2);
-};
-
-// return json path in the format $["customer"]
-const jsonPathToString = (path?: NodeData["path"]) => {
+const jsonPathToString = (path?: (string | number)[]) => {
   if (!path || path.length === 0) return "$";
   const segments = path.map(seg => (typeof seg === "number" ? seg : `"${seg}"`));
   return `$[${segments.join("][")}]`;
@@ -28,6 +13,29 @@ const jsonPathToString = (path?: NodeData["path"]) => {
 
 export const NodeModal = ({ opened, onClose }: ModalProps) => {
   const nodeData = useGraph(state => state.selectedNode);
+  const updateNode = useGraph(state => state.updateNode);
+
+  const [editMode, setEditMode] = useState(false);
+  const [draftValue, setDraftValue] = useState<string>(String(nodeData?.text?.[0]?.value ?? ""));
+  const [draftKey, setDraftKey] = useState<string>(String(nodeData?.text?.[0]?.key ?? ""));
+
+  // update when nodeData changes
+  React.useEffect(() => {
+    setDraftValue(String(nodeData?.text?.[0]?.value ?? ""));
+    setDraftKey(String(nodeData?.text?.[0]?.key ?? ""));
+  }, [nodeData]);
+
+  const handleEditClick = () => {
+    setEditMode(true);
+  };
+  const handleSave = () => {
+    if (!nodeData) return;
+    updateNode(nodeData.id, {
+      key: draftKey,
+      value: draftValue,
+    });
+    setEditMode(false);
+  };
 
   return (
     <Modal size="auto" opened={opened} onClose={onClose} centered withCloseButton={false}>
@@ -40,13 +48,43 @@ export const NodeModal = ({ opened, onClose }: ModalProps) => {
             <CloseButton onClick={onClose} />
           </Flex>
           <ScrollArea.Autosize mah={250} maw={600}>
-            <CodeHighlight
-              code={normalizeNodeData(nodeData?.text ?? [])}
-              miw={350}
-              maw={600}
-              language="json"
-              withCopyButton
-            />
+            {!editMode ? (
+              <>
+                <CodeHighlight
+                  code={JSON.stringify(nodeData?.text ?? [], null, 2)}
+                  miw={350}
+                  maw={600}
+                  language="json"
+                  withCopyButton
+                />
+                <Button
+                  color="green"
+                  mt="xs"
+                  onClick={handleEditClick}
+                  style={{ alignSelf: "flex-end" }}
+                >
+                  Edit
+                </Button>
+              </>
+            ) : (
+              // Simple edit UI for key/value, you may want a richer form for more complex nodes
+              <Stack>
+                <TextInput
+                  label="Key"
+                  value={draftKey}
+                  onChange={e => setDraftKey(e.currentTarget.value)}
+                />
+                <TextInput
+                  label="Value"
+                  value={draftValue}
+                  onChange={e => setDraftValue(e.currentTarget.value)}
+                />
+                <Flex gap="sm">
+                  <Button color="green" onClick={handleSave}>Save</Button>
+                  <Button variant="light" onClick={() => setEditMode(false)}>Cancel</Button>
+                </Flex>
+              </Stack>
+            )}
           </ScrollArea.Autosize>
         </Stack>
         <Text fz="xs" fw={500}>

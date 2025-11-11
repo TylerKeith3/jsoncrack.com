@@ -1,9 +1,8 @@
 import React, { useState } from "react";
-import { Modal, Stack, Flex, Text, CloseButton, ScrollArea, Button, TextInput, type ModalProps } from "@mantine/core";
+import { Modal, Stack, Flex, Text, CloseButton, ScrollArea, Button, Textarea, TextInput, ColorInput, type ModalProps } from "@mantine/core";
 import { CodeHighlight } from "@mantine/code-highlight";
 import useGraph from "../../editor/views/GraphView/stores/useGraph";
-
-// ... existing imports and code remain unchanged ...
+import useJson from "../../../store/useJson";
 
 const jsonPathToString = (path?: (string | number)[]) => {
   if (!path || path.length === 0) return "$";
@@ -13,28 +12,152 @@ const jsonPathToString = (path?: (string | number)[]) => {
 
 export const NodeModal = ({ opened, onClose }: ModalProps) => {
   const nodeData = useGraph(state => state.selectedNode);
-  const updateNode = useGraph(state => state.updateNode);
+  const setJson = useJson(state => state.setJson);
 
   const [editMode, setEditMode] = useState(false);
-  const [draftValue, setDraftValue] = useState<string>(String(nodeData?.text?.[0]?.value ?? ""));
-  const [draftKey, setDraftKey] = useState<string>(String(nodeData?.text?.[0]?.key ?? ""));
+  const [editedData, setEditedData] = useState<any>(null);
 
-  // update when nodeData changes
-  React.useEffect(() => {
-    setDraftValue(String(nodeData?.text?.[0]?.value ?? ""));
-    setDraftKey(String(nodeData?.text?.[0]?.key ?? ""));
-  }, [nodeData]);
+  // Get the actual value from the JSON at this node's path
+  const getNodeValue = () => {
+    if (!nodeData?.path) return null;
+    try {
+      const jsonData = JSON.parse(useJson.getState().json);
+      let current: any = jsonData;
+      for (const key of nodeData.path) {
+        current = current[key];
+      }
+      return current;
+    } catch {
+      return null;
+    }
+  };
 
   const handleEditClick = () => {
+    const value = getNodeValue();
+    setEditedData(JSON.parse(JSON.stringify(value))); // Deep clone
     setEditMode(true);
   };
+  
   const handleSave = () => {
-    if (!nodeData) return;
-    updateNode(nodeData.id, {
-      key: draftKey,
-      value: draftValue,
-    });
-    setEditMode(false);
+    if (!nodeData?.path || !editedData) return;
+    
+    try {
+      const jsonData = JSON.parse(useJson.getState().json);
+      let current: any = jsonData;
+      
+      // Navigate to parent
+      for (let i = 0; i < nodeData.path.length - 1; i++) {
+        current = current[nodeData.path[i]];
+      }
+      
+      const lastKey = nodeData.path[nodeData.path.length - 1];
+      current[lastKey] = editedData;
+      
+      setJson(JSON.stringify(jsonData, null, 2));
+      setEditMode(false);
+    } catch (error) {
+      console.error('Error saving:', error);
+    }
+  };
+
+  const handleFieldChange = (field: string, value: any) => {
+    setEditedData((prev: any) => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleNestedFieldChange = (parent: string, field: string, value: any) => {
+    setEditedData((prev: any) => ({
+      ...prev,
+      [parent]: {
+        ...prev[parent],
+        [field]: value
+      }
+    }));
+  };
+
+  const renderEditForm = () => {
+    if (!editedData || typeof editedData !== 'object') {
+      return (
+        <Textarea
+          label="Value"
+          value={JSON.stringify(editedData, null, 2)}
+          onChange={e => {
+            try {
+              setEditedData(JSON.parse(e.currentTarget.value));
+            } catch {
+              // Allow editing even if temporarily invalid
+            }
+          }}
+          minRows={4}
+          styles={{ input: { fontFamily: 'monospace', fontSize: '12px' } }}
+        />
+      );
+    }
+
+    // Check if this is a fruit object with the expected structure
+    const isFruitObject = editedData.name && editedData.color && editedData.details && editedData.nutrients;
+
+    if (isFruitObject) {
+      return (
+        <Stack gap="md">
+          <TextInput
+            label="Name"
+            value={editedData.name || ''}
+            onChange={e => handleFieldChange('name', e.currentTarget.value)}
+          />
+          <ColorInput
+            label="Color"
+            value={editedData.color || '#000000'}
+            onChange={value => handleFieldChange('color', value)}
+          />
+          
+          <Text size="sm" fw={500} mt="md">Details</Text>
+          <Stack gap="xs" pl="md">
+            <TextInput
+              label="Type"
+              value={editedData.details?.type || ''}
+              onChange={e => handleNestedFieldChange('details', 'type', e.currentTarget.value)}
+            />
+            <TextInput
+              label="Season"
+              value={editedData.details?.season || ''}
+              onChange={e => handleNestedFieldChange('details', 'season', e.currentTarget.value)}
+            />
+          </Stack>
+
+          <Text size="sm" fw={500} mt="md">Nutrients</Text>
+          <Stack gap="xs" pl="md">
+            {Object.entries(editedData.nutrients || {}).map(([key, value]) => (
+              <TextInput
+                key={key}
+                label={key}
+                value={String(value)}
+                onChange={e => handleNestedFieldChange('nutrients', key, e.currentTarget.value)}
+              />
+            ))}
+          </Stack>
+        </Stack>
+      );
+    }
+
+    // For other objects, show JSON editor
+    return (
+      <Textarea
+        label="Edit JSON"
+        value={JSON.stringify(editedData, null, 2)}
+        onChange={e => {
+          try {
+            setEditedData(JSON.parse(e.currentTarget.value));
+          } catch {
+            // Allow editing even if temporarily invalid
+          }
+        }}
+        minRows={8}
+        styles={{ input: { fontFamily: 'monospace', fontSize: '12px' } }}
+      />
+    );
   };
 
   return (
@@ -47,7 +170,7 @@ export const NodeModal = ({ opened, onClose }: ModalProps) => {
             </Text>
             <CloseButton onClick={onClose} />
           </Flex>
-          <ScrollArea.Autosize mah={250} maw={600}>
+          <ScrollArea.Autosize mah={450} maw={600}>
             {!editMode ? (
               <>
                 <CodeHighlight
@@ -67,19 +190,9 @@ export const NodeModal = ({ opened, onClose }: ModalProps) => {
                 </Button>
               </>
             ) : (
-              // Simple edit UI for key/value, you may want a richer form for more complex nodes
               <Stack>
-                <TextInput
-                  label="Key"
-                  value={draftKey}
-                  onChange={e => setDraftKey(e.currentTarget.value)}
-                />
-                <TextInput
-                  label="Value"
-                  value={draftValue}
-                  onChange={e => setDraftValue(e.currentTarget.value)}
-                />
-                <Flex gap="sm">
+                {renderEditForm()}
+                <Flex gap="sm" mt="md">
                   <Button color="green" onClick={handleSave}>Save</Button>
                   <Button variant="light" onClick={() => setEditMode(false)}>Cancel</Button>
                 </Flex>
